@@ -1,0 +1,36 @@
+acceptLicenseAgreement: "yes"
+neo4j:
+  name: "neo4j-standalone"
+  edition: "community"
+volumes:
+  data:
+    mode: defaultStorageClass
+    defaultStorageClass:
+      requests:
+        storage: 5Gi   
+podAnnotations:
+  authored: "vns-local-wsl"
+  configRevision: "v1"
+podLabels:
+  module: "ingestion-graph"
+  owner: "vns"
+config:
+  dbms.security.auth_enabled: "true"
+  dbms.security.procedures.unrestricted: "gds.*"
+  dbms.default_listen_address: "0.0.0.0"
+  server.bolt.enabled: "true"
+  server.http.enabled: "true"
+  dbms.routing.enabled: "false"
+plugins:
+  - "https://dist.neo4j.org/plugins/graph-data-science-2.5.6.zip"
+resources:
+  requests:
+    cpu: "200m"
+    memory: "1Gi"
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+service:
+  labels:
+    exposure: "in-cluster"
+    maintainer: "vns"

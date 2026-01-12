@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-neo4j-connector
+  labels:
+    component: kafka-neo4j
+    owner: vns
+spec:
+  selector:
+    component: kafka-neo4j
+    owner: vns
+  ports:
+    - name: rest
+      port: 8083
+      targetPort: 8083
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-sink-config
+  labels:
+    component: kafka-neo4j
+    owner: vns
+  annotations:
+    authored-by: "vns-local-wsl"
+    vns.io/config-rev: "v1"
+data:
+  sink.neo4j.json: |
+    {
+      "name": "Neo4jSinkConnectorJSONString",
+      "config": {
+        "topics": "nyc_taxicab_data",
+        "connector.class": "streams.kafka.connect.sink.Neo4jSinkConnector",
+        "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "key.converter.schemas.enable": false,
+        "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "value.converter.schemas.enable": false,
+        "errors.retry.timeout": "-1",
+        "errors.retry.delay.max.ms": "1000",
+        "errors.tolerance": "all",
+        "errors.log.enable": true,
+        "errors.log.include.messages": true,
+        "neo4j.server.uri": "bolt://neo4j-service:7687",
+        "neo4j.authentication.basic.username": "neo4j",
+        "neo4j.authentication.basic.password": "${NEO4J_PASSWORD}",
+        "neo4j.topic.cypher.nyc_taxicab_data": "MERGE (p:Location {name: toInteger(event.PULocationID)}) MERGE (d:Location {name: toInteger(event.DOLocationID)}) MERGE (p)-[:TRIP {distance: toFloat(event.trip_distance), fare: toFloat(event.fare_amount)}]->(d)"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-neo4j-connector
+  labels:
+    component: kafka-neo4j
+    owner: vns
+  annotations:
+    authored-by: "vns-local-wsl"
+    vns.io/config-rev: "v1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: kafka-neo4j
+      owner: vns
+  template:
+    metadata:
+      labels:
+        component: kafka-neo4j
+        owner: vns
+        app: kafka-neo4j-connector
+      annotations:
+        vns.io/config-rev: "v1"
+    spec:
+      restartPolicy: Always
+      dnsPolicy: ClusterFirst
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: default
+      enableServiceLinks: true
+      containers:
+        - name: connect
+          image: veedata/kafka-neo4j-connect:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+          env:
+            - name: CONNECT_REST_PORT
+              value: "8083"
+            - name: CONNECT_BOOTSTRAP_SERVERS
+              value: "kafka-service:29092"
+            - name: CONNECT_LOG4J_LOGGERS
+              value: "org.apache.kafka.connect.runtime.rest.RestServer=INFO"
+          volumeMounts:
+            - name: sink-file
+              mountPath: /home/appuser/sink.neo4j.json
+              subPath: sink.neo4j.json
+          readinessProbe:
+            httpGet:
+              path: /connectors
+              port: 8083
+            initialDelaySeconds: 8
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /connectors
+              port: 8083
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: sink-file
+          configMap:
+            name: neo4j-sink-config
